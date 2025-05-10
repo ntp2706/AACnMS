@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+    <html>
+        <head>
+            <meta charset='UTF-8'>
+            <meta name='viewport' content='width=device-width,initial-scale=1'>
+            <link rel='preconnect' href='https://fonts.gstatic.com'>
+            <link href='https://fonts.googleapis.com/css2?family=Roboto&display=swap' rel='stylesheet'>
+            <script src="/socket.io/socket.io.js"></script>
+            <script>
+                const socket = io();
+                let timeoutId;
+                
+                socket.on('updateNotification', (data) => {
+                    const titleElement = document.getElementById('title');
+                    const contentElement = document.getElementById('content');
+                    
+                    titleElement.textContent = data.main;
+                    contentElement.textContent = data.sub;
+                    
+                    if (data.color === 'red') {
+                        titleElement.style.color = '#FF6060';
+                    } else if (data.color === 'green') {
+                        titleElement.style.color = '#4CAF50';
+                    }
+                    
+                    if (timeoutId) {
+                        clearTimeout(timeoutId);
+                    }
+                    
+                    if (data.timeout) {
+                        timeoutId = setTimeout(() => {
+                            titleElement.textContent = 'Đang chờ';
+                            contentElement.textContent = 'Đang chờ';
+                            titleElement.style.color = '#4CAF50';
+                        }, parseInt(data.timeout));
+                    }
+                });
+            </script>
+            <style>
+                body {
+                    font-family: Montserrat, sans-serif;
+                    background-color: #fff;
+                    overflow: hidden
+                }
+                .notification {
+                    padding: 10px 20px 10px 20px;
+                    margin: auto auto
+                }
+                .notificationMain {
+                    color: #4caf50
+                }
+                .notificationSub {
+                    font-weight: 400
+                }
+            </style>
+        </head>
+        <body>
+            <div class='notification' id='notification'>
+                <h2 class='notificationMain' id='title'>Đang chờ</h2>
+                <h3 class='notificationSub' id='content'>Đang chờ</h3>
+            </div>
+        </body>
+    </html>

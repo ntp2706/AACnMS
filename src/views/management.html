@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel='preconnect' href='https://fonts.gstatic.com'>
+  <link href='https://fonts.googleapis.com/css2?family=Roboto&display=swap' rel='stylesheet'>
+  <title>Access Control Management</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; font-family: Montserrat, sans-serif; } 
+    body { background-color: #f4f4f4; color: #000; } 
+    .container { max-width: 1400px; margin: 0 auto; padding: 1.5rem 1rem; min-height: 100vh; } 
+    h1 { font-size: 1.5rem; font-weight: bold; margin-bottom: 0.5rem; } .bold { font-weight: bold; } 
+    .name { font-size: 1.5rem; } 
+    .status-indicator { display: flex; align-items: center; margin-bottom: 1rem; gap: 0.5rem; } 
+    .status-dot { width: 12px; height: 12px; border-radius: 50%; background-color: #ccc; } 
+    .status-dot.connected { background-color: #4CAF50; } 
+    .status-dot.disconnected { background-color: #f44336; } 
+    .tabs { width: 100%; } 
+    .tabs-list { display: grid; grid-template-columns: repeat(2, 1fr); margin-bottom: 1.5rem; border-radius: 0.5rem; overflow: hidden; } 
+    .tab-trigger { padding: 0.75rem; text-align: center; font-weight: bold; background-color: #fff; border: none; cursor: pointer; transition: background-color 0.2s, color 0.2s; } 
+    .tab-trigger:hover { background-color: #e8f5e9; } 
+    .tab-trigger.active { background-color: #4CAF50; color: #fff; } 
+    .tab-trigger.active:hover { background-color: #43a047; } 
+    .tab-content { display: none; background-color: #fff; border-radius: 0.5rem; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1); } 
+    .tab-content.active { display: block; } 
+    .table-container { position: relative; overflow: hidden; border-radius: 0.5rem; border: 1px solid #e2e8f0; } 
+    .overflow-auto { max-height: 70vh; overflow-y: auto; } 
+    table { width: 100%; border-collapse: collapse; } 
+    thead { position: sticky; top: 0; z-index: 20; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); } 
+    th { padding: 0.75rem; text-align: center; font-weight: bold; background-color: #4CAF50; color: #fff; } 
+    td { padding: 0.75rem; border-bottom: 1px solid #e2e8f0; } 
+    tbody tr:nth-child(even) { background-color: #f4f4f4; } 
+    tbody tr:nth-child(odd) { background-color: #fff; } 
+    a { display: flex; align-items: center; justify-content: center; color: #4CAF50; text-decoration: none; } 
+    a:hover { text-decoration: underline; } .external-link-icon { margin-right: 0.25rem; width: 16px; height: 16px; } 
+    .text-center { text-align: center; padding: 8px;} 
+    .notification { position: fixed; top: 1rem; right: 1rem; padding: 1rem; background-color: #4CAF50; color: white; border-radius: 0.5rem; box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1); transform: translateX(150%); transition: transform 0.3s ease-in-out; z-index: 1000; } 
+    .notification.show { transform: translateX(0); } 
+    .loading { display: flex; justify-content: center; align-items: center; padding: 2rem; font-weight: bold; color: #666; } 
+    .spinner { border: 4px solid rgba(0, 0, 0, 0.1); width: 24px; height: 24px; border-radius: 50%; border-left-color: #4CAF50; animation: spin 1s linear infinite; margin-right: 10px; } 
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .image-preview-tooltip { position: absolute; background: white; border: 1px solid #ddd; border-radius: 4px; padding: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: none; z-index: 1000; max-width: 300px; min-width: 150px; min-height: 50px; } 
+    .image-preview-tooltip img { max-width: 100%; height: auto; display: block; } 
+    .preview-link { position: relative; display: inline-flex; align-items: center; justify-content: center; color: #4CAF50; text-decoration: none; padding: 4px 8px; border: 1px solid #e0e0e0; border-radius: 4px; background-color: #f9f9f9; transition: background-color 0.2s; } 
+    .preview-link:hover { background-color: #e8f5e9; text-decoration: none; } 
+    .red-button, button.red-button, button[class*="red-button"] { min-width: 92px !important; padding: 8px 10px !important; background-color: #ffffff !important; color: #FF6060 !important; border: 2px solid #FF6060 !important; border-radius: 5px !important; cursor: pointer !important; font-size: 14px !important; font-weight: normal !important; text-align: center !important; display: inline-block !important; transition: all 0.2s ease !important; text-decoration: none !important; margin: 5px !important; outline: none !important; } 
+    .red-button:hover, button.red-button:hover, button[class*="red-button"]:hover { background-color: #FF6060 !important; color: #ffffff !important; transform: scale(1.05) !important; font-weight: bold !important; } 
+    .red-button:active, button.red-button:active, button[class*="red-button"]:active { transform: scale(0.95) !important; }
+    .row-checkbox { appearance: none; -webkit-appearance: none; width: 20px; height: 20px; border: 2px solid #4CAF50; border-radius: 4px; outline: none; cursor: pointer; position: relative; transition: all 0.2s ease; } 
+    .row-checkbox:hover { border-color: #45a049; background-color: rgba(76, 175, 80, 0.1); } 
+    .row-checkbox:checked { background-color: #4CAF50; border-color: #4CAF50; } 
+    .row-checkbox:checked::after { content: ''; position: absolute; left: 6px; top: 2px; width: 5px; height: 10px; border: solid white; border-width: 0 2px 2px 0; transform: rotate(45deg); } 
+    .row-checkbox:focus { box-shadow: 0 0 0 3px rgba(76, 175, 80, 0.2); }
+    .hidden, button.hidden, .red-button.hidden, button.red-button.hidden { display: none !important;}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Cơ sở dữ liệu & Lịch sử truy cập</h1>
+    
+    <div class="status-indicator">
+      <div id="mqtt-status" class="status-dot disconnected"></div>
+      <span id="mqtt-status-text">MQTT: Đang kết nối...</span>
+    </div>
+
+    <div class="tabs">
+      <div class="tabs-list">
+        <button class="tab-trigger active" data-tab="database">Database</button>
+        <button class="tab-trigger" data-tab="log">Log</button>
+      </div>
+
+      <div class="tab-content active" id="database-tab">
+        <div class="table-container">
+          <div class="overflow-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 200px;">No.</th>
+                  <th>Họ và tên</th>
+                  <th style="width: 160px;">Ngày sinh</th>
+                  <th style="width: 120px;">Phòng</th>
+                  <th style="width: 160px;">Hình ảnh</th>
+                  <th style="width: 160px;">Lựa chọn</th>
+                  <th style="width: 160px;">Xóa</th>
+                </tr>
+              </thead>
+              <tbody id="database-body">
+                <tr>
+                  <td colspan="5" class="loading">
+                    <div class="spinner"></div>
+                    Đang tải dữ liệu...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-content" id="log-tab">
+        <div class="table-container">
+          <div class="overflow-auto">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 200px;">Ngày</th>
+                  <th style="width: 120px;">Giờ</th>
+                  <th style="width: 200px;">No.</th>
+                  <th>Họ và tên</th>
+                  <th style="width: 160px;">Ngày sinh</th>
+                  <th style="width: 120px;">Phòng</th>
+                  <th style="width: 160px;">Hình ảnh</th>
+                </tr>
+              </thead>
+              <tbody id="log-body">
+                <tr>
+                  <td colspan="7" class="loading">
+                    <div class="spinner"></div>
+                    Đang tải dữ liệu...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="notification" class="notification">
+    Đã nhận dữ liệu mới từ MQTT
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/4.3.7/mqtt.min.js"></script>
+  
+  <script>
+    let databaseData = [];
+    let logData = [];
+
+    const mqttBroker = 'ws://broker.emqx.io:8083/mqtt';
+    const mqttOptions = {
+      clientId: 'web_client_' + Math.random().toString(16).substring(2, 8),
+      username: '',
+      password: '',
+      clean: true
+    };
+
+    const databaseTopic = 'database/acs/users';
+    const logTopic = 'database/acs/logs';
+    const reloadTopic = 'feature/acs/reload';
+
+    let mqttClient;
+    let notificationTimeout;
+
+    document.addEventListener('DOMContentLoaded', function() {
+      initTabs();
+      fetchInitialData();
+      connectMQTT();
+    });
+
+    async function fetchInitialData() {
+      try {
+        databaseData = [];
+        logData = [];
+
+        const databaseResponse = await fetch('/api/acs/database');
+        if (!databaseResponse.ok) {
+          if (databaseResponse.status === 404) {
+            document.getElementById('database-body').innerHTML = 
+              '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+            return;
+          }
+          throw new Error(`Lỗi HTTP: ${databaseResponse.status}`);
+        }
+        
+        const dbData = await databaseResponse.json();
+        if (dbData && Array.isArray(dbData)) {
+          databaseData = dbData;
+          if (databaseData.length > 0) {
+            console.log(`Đã tải ${databaseData.length} thông tin người dùng`);
+            renderDatabaseTable();
+          } else {
+            document.getElementById('database-body').innerHTML = 
+              '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+          }
+        }
+
+        const logResponse = await fetch('/api/acs/logs');
+        if (!logResponse.ok) {
+          if (logResponse.status === 404) {
+            document.getElementById('log-body').innerHTML = 
+              '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+            return;
+          }
+          throw new Error(`Lỗi HTTP: ${logResponse.status}`);
+        }
+        
+        const logDataResponse = await logResponse.json();
+        if (logDataResponse && Array.isArray(logDataResponse)) {
+          logData = logDataResponse;
+          if (logData.length > 0) {
+            console.log(`Đã tải ${logData.length} lịch sử truy cập`);
+            renderLogTable();
+          } else {
+            document.getElementById('log-body').innerHTML = 
+              '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+          }
+        }
+
+      } catch (error) {
+        console.error('Lỗi khởi tạo dữ liệu ban đầu:', error);
+        databaseData = [];
+        logData = [];
+        
+        document.getElementById('database-body').innerHTML = 
+          '<tr><td colspan="7" class="text-center">Lỗi tải dữ liệu: ' + error.message + '</td></tr>';
+        document.getElementById('log-body').innerHTML = 
+          '<tr><td colspan="7" class="text-center">Lỗi tải dữ liệu: ' + error.message + '</td></tr>';
+      }
+    }
+
+    function connectMQTT() {
+      try {
+        mqttClient = mqtt.connect(mqttBroker, mqttOptions);
+        
+        mqttClient.on('connect', function() {
+          console.log('Đã kết nối MQTT broker');
+          document.getElementById('mqtt-status').className = 'status-dot connected';
+          document.getElementById('mqtt-status-text').textContent = 'MQTT: Đã kết nối';
+          
+          mqttClient.subscribe(databaseTopic);
+          mqttClient.subscribe(logTopic);
+          mqttClient.subscribe(reloadTopic);
+        });
+        
+        mqttClient.on('message', function(topic, message) {
+          try {
+            const payload = JSON.parse(message.toString());
+            console.log('Đã nhận thông điệp: ', topic, payload);
+            
+            if (topic === databaseTopic) {
+              handleDatabaseUpdate(payload);
+            } else if (topic === logTopic) {
+              handleLogUpdate(payload);
+            } else if (topic === reloadTopic) {
+              window.location.reload();
+            }
+            
+            showNotification();
+          } catch (error) {
+            console.error('Lỗi xử lý tin nhắn MQTT:', error);
+          }
+        });
+        
+        mqttClient.on('error', function(error) {
+          console.error('Lỗi MQTT:', error);
+          document.getElementById('mqtt-status').className = 'status-dot disconnected';
+          document.getElementById('mqtt-status-text').textContent = 'MQTT: Lỗi kết nối';
+        });
+        
+        mqttClient.on('offline', function() {
+          console.log('MQTT đã ngắt kết nối');
+          document.getElementById('mqtt-status').className = 'status-dot disconnected';
+          document.getElementById('mqtt-status-text').textContent = 'MQTT: Đã ngắt kết nối';
+        });
+      } catch (error) {
+        console.error('Không thể kết nối MQTT:', error);
+        document.getElementById('mqtt-status').className = 'status-dot disconnected';
+        document.getElementById('mqtt-status-text').textContent = 'MQTT: Lỗi kết nối';
+      }
+    }
+
+    function handleDatabaseUpdate(data) {
+      const existingIndex = databaseData.findIndex(item => item.id === data.id);
+      
+      if (existingIndex >= 0) {
+        databaseData[existingIndex] = data;
+      } else {
+        databaseData.push(data);
+      }
+      
+      renderDatabaseTable();
+    }
+
+    function handleLogUpdate(data) {
+      logData.unshift(data);
+      
+      if (logData.length > 100) {
+        logData = logData.slice(0, 100);
+      }
+      
+      renderLogTable();
+    }
+
+    function showNotification() {
+      const notification = document.getElementById('notification');
+      notification.classList.add('show');
+
+      if (notificationTimeout) {
+        clearTimeout(notificationTimeout);
+      }
+
+      notificationTimeout = setTimeout(() => {
+        notification.classList.remove('show');
+      }, 3000);
+    }
+
+    function renderLogTable() {
+      const tbody = document.getElementById('log-body');
+
+      if (logData.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+        return;
+      }
+      
+      tbody.innerHTML = '';
+      
+      logData.forEach(log => {
+        if (!log || !log.id) return;
+        
+        const row = document.createElement('tr');
+        
+        row.innerHTML = `
+          <td class="text-center">${log.date || ''}</td>
+          <td class="text-center">${log.time || ''}</td>
+          <td class="font-medium text-center">${log.id || ''}</td>
+          <td class="name bold">${log.name || ''}</td>
+          <td class="text-center">${log.dob || ''}</td>
+          <td class="text-center">${log.room || ''}</td>
+          <td class="text-center">
+            ${log.image && log.image !== 'N/A' ? `
+              <a href="${log.image}" 
+                 class="preview-link"
+                 target="_blank" 
+                 rel="noopener noreferrer"
+                 data-preview="${log.image}"
+                 onmouseover="showImagePreview(event, this)" 
+                 onmouseout="hideImagePreview()">
+                <svg class="external-link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+                  <polyline points="15 3 21 3 21 9"></polyline>
+                  <line x1="10" y1="14" x2="21" y2="3"></line>
+                </svg>
+                <span>Xem</span>
+              </a>
+            ` : 'N/A'}
+          </td>
+        `;
+        
+        tbody.appendChild(row);
+      });
+    }
+
+    function initTabs() {
+      const tabs = document.querySelectorAll('.tab-trigger');
+      
+      tabs.forEach(tab => {
+        tab.addEventListener('click', function() {
+          document.querySelectorAll('.tab-trigger').forEach(t => t.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+          this.classList.add('active');
+
+          const tabId = this.getAttribute('data-tab');
+          document.getElementById(`${tabId}-tab`).classList.add('active');
+        });
+      });
+    }
+
+function showImagePreview(event, element) {
+  const previewUrl = element.getAttribute('data-preview');
+  
+  let tooltip = document.getElementById('image-preview-tooltip');
+  if (!tooltip) {
+    tooltip = document.createElement('div');
+    tooltip.id = 'image-preview-tooltip';
+    tooltip.className = 'image-preview-tooltip';
+    document.body.appendChild(tooltip);
+  }
+
+  tooltip.innerHTML = '<div class="spinner"></div>';
+  tooltip.style.display = 'block';
+
+  const rect = element.getBoundingClientRect();
+  tooltip.style.left = `${event.pageX + 10}px`;
+  tooltip.style.top = `${event.pageY + 10}px`;
+  
+  const img = new Image();
+  img.onload = function() {
+    if (tooltip.style.display !== 'none') {
+      tooltip.innerHTML = '';
+      tooltip.appendChild(img);
+    }
+  };
+  
+  img.onerror = function() {
+    if (tooltip.style.display !== 'none') {
+      tooltip.innerHTML = '<div style="padding: 10px; color: #FF6060;">Không thể tải hình ảnh</div>';
+    }
+  };
+  
+  img.src = previewUrl;
+  img.alt = "Preview";
+  img.style.maxWidth = "100%";
+}
+
+function hideImagePreview() {
+  const tooltip = document.getElementById('image-preview-tooltip');
+  if (tooltip) {
+    tooltip.style.display = 'none';
+  }
+}
+
+function renderDatabaseTable() {
+  const tbody = document.getElementById('database-body');
+
+  if (databaseData.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+    return;
+  }
+  
+  tbody.innerHTML = '';
+  
+  databaseData.forEach(user => {
+    if (!user || !user.id) return;
+    
+    const row = document.createElement('tr');
+    
+    row.innerHTML = `
+      <td class="font-medium text-center">${user.id || ''}</td>
+      <td class="name bold">${user.name || ''}</td>
+      <td class="text-center">${user.dob || ''}</td>
+      <td class="text-center">${user.room || ''}</td>
+      <td class="text-center">
+        ${user.image ? `
+          <a href="${user.image}" 
+             class="preview-link"
+             target="_blank" 
+             rel="noopener noreferrer"
+             data-preview="${user.image}"
+             onmouseover="showImagePreview(event, this)" 
+             onmouseout="hideImagePreview()">
+            <svg class="external-link-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+            <span>Xem</span>
+          </a>
+        ` : 'N/A'}
+      </td>
+      <td class="text-center">
+        <input type="checkbox" class="row-checkbox">
+      </td>
+      <td class="text-center">
+        <button class="red-button hidden" onclick="deleteUser(${user.id})">Xóa</button>
+      </td>
+    `;
+    
+    tbody.appendChild(row);
+  });
+
+  initCheckboxHandlers();
+}
+
+function initCheckboxHandlers() {
+  const checkboxes = document.querySelectorAll('.row-checkbox');
+  
+  checkboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', function() {
+      const row = this.closest('tr');
+      const deleteButton = row.querySelector('.red-button');
+      
+      if (this.checked) {
+        deleteButton.classList.remove('hidden');
+      } else {
+        deleteButton.classList.add('hidden');
+      }
+    });
+  });
+}
+
+function deleteUser(userId) {
+  if (!mqttClient || !mqttClient.connected) {
+    console.error('MQTT chưa được kết nối');
+    return;
+  }
+
+  const payload = {
+    identification: userId
+  };
+
+  try {
+    mqttClient.publish('feature/acs/delete', JSON.stringify(payload), { qos: 1 }, function(err) {
+      if (err) {
+        console.error('Lỗi khi gửi lệnh xóa:', err);
+      } else {
+        console.log('Đã gửi lệnh xóa cho user:', userId);
+        const deleteButton = document.querySelector(`button[onclick="deleteUser(${userId})"]`);
+        if (deleteButton) {
+          const row = deleteButton.closest('tr');
+          if (row) {
+            row.remove();
+          }
+        }
+        const tbody = document.getElementById('database-body');
+        if (tbody.children.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="7" class="text-center">Không có dữ liệu</td></tr>';
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Lỗi khi gửi MQTT message:', error);
+  }
+}
+  </script>
+</body>
+</html>
