@@ -1,0 +1,54 @@
+{
+  "project_info": {
+    "project_number": "916986474727",
+    "project_id": "test-96fdf",
+    "storage_bucket": "test-96fdf.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:916986474727:android:65c3d30b286a9a4db03242",
+        "android_client_info": {
+          "package_name": "com.ntp.signintest"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "916986474727-cdvbb9me108bg7o9k0coke1b36hrse3d.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.ntp.signintest",
+            "certificate_hash": "f124b60d93e1dd715a01b57f4ee6e95174d349c5"
+          }
+        },
+        {
+          "client_id": "916986474727-a3mabbai0d55qljt0tus3v7durgtvpoj.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDwLYY39mkxl9B6S-hfGogLOwaJxviWeM4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "916986474727-a3mabbai0d55qljt0tus3v7durgtvpoj.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "916986474727-dqcputnfa4r1nisfuvm4k9pvctk9319o.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.example.ms"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
