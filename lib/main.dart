@@ -1203,7 +1203,7 @@ String encodeToAscii(String text) {
         
         final Directory tempDir = await getTemporaryDirectory();
         final File informationFile = File('${tempDir.path}/information.txt');
-        final String informationContent = "Database:$fullName\$$birthDate\$$room\$$username";
+        final String informationContent = "Database:${_fullNameController.text}\$$birthDate\$$room\$$username";
         await informationFile.writeAsString(informationContent);
         
         final Reference infoRef = _storage.ref().child('$folderPath/information.txt');
