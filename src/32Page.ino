@@ -2,12 +2,9 @@
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <WebSocketsClient.h>
-#include <PubSubClient.h>
 #include "esp_camera.h"
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-#include <NTPClient.h>
-#include <WiFiUdp.h>
 
 #define SSID "NTP"
 #define PASSWORD "qwert123"
@@ -15,14 +12,6 @@
 #define WEBAPP_URL "https://script.google.com/macros/s/AKfycbwiUOj947ROPLbEiq3Mt4KV21B3g0lvjoncwc-Wjf4fwVfL819LAsCYcvZ3GpD8KhJI/exec"
 
 const String FIREBASE_STORAGE_BUCKET = "test-96fdf.appspot.com";
-
-const char* mqtt_server = "broker.emqx.io"; 
-const int mqtt_port = 1883;
-
-const char* mqtt_update_topic = "feature/acs/update";
-const char* mqtt_delete_topic = "feature/acs/delete";
-const char* mqtt_notify_topic = "feature/acs/notify";
-const char* mqtt_client_id = "ESP32_CAM";
 
 IPAddress localIP;
 char esp8266LocalIP[16];
@@ -46,6 +35,7 @@ byte equalstate = 0;
 byte semicolonstate = 0;
 
 int flashValue = 0;
+bool webSocketConnected = false;
 
 String nameSend;
 String dobSend;
@@ -59,10 +49,6 @@ String nameReceive = "N/A";
 String dobReceive = "N/A";
 String roomReceive = "N/A";
 String timestampReceive = "0";
-
-String currentDate;
-String currentTime;
-String months[12]={"January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"};
 
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
@@ -84,10 +70,6 @@ String months[12]={"January", "February", "March", "April", "May", "June", "July
 WiFiServer server(80);
 WiFiClient client;
 WebSocketsClient webSocket;
-PubSubClient mqttClient(client);
-
-WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org");
 
 void setup() {
   Serial.begin(115200);
@@ -168,19 +150,9 @@ void setup() {
 
   webSocket.begin(esp8266LocalIP, 81, "/");
   webSocket.onEvent(onWebSocketEvent);
-  webSocket.setReconnectInterval(1000);
-
-  if (mqttClient.connect(mqtt_client_id)) {
-      Serial.println("đã kết nối");
-  } else {
-      Serial.print("Lỗi, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println("Thử lại sau 3 giây");
-      delay(3000);
-    }
-
-  timeClient.begin();
-  timeClient.setTimeOffset(7*3600);
+  if (!webSocketConnected) {
+    webSocket.setReconnectInterval(1000);
+  }
 }
 
 void processMessage(String message, int headerLength) {
@@ -215,15 +187,17 @@ void recallIdentifier(String id) {
 
   String urlNode = "http://" + String(serverIP) + ":3000/recall";
   String message = 
-    "{"
-      "\"identifier\":\"" + id + "\""
+    "{\"identification\":\"" + id + "\"}";
 
-    "}";
+  unsigned long startTime = millis();
 
   http.begin(urlNode);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
   int httpResponseCode = http.POST(message);
+
+  unsigned long duration = millis() - startTime;
+  Serial.println("Thời gian gửi và nhận phản hồi (recall): " + String(duration) + " ms");
 
   if (httpResponseCode > 0) {
     Serial.println("Tải lên thành công");
@@ -236,7 +210,6 @@ void recallIdentifier(String id) {
 
     } else {
         processMessage(information, 9);
-
         String message = "ShowInformation";
         webSocket.sendTXT(message);
       }
@@ -260,14 +233,27 @@ void recallIdentifier(String id) {
 }
 
 void updateNotification(String main, String sub, String timeout, String color) {
+  HTTPClient http;
+
+  String urlNode = "http://" + String(serverIP) + ":3000/notify";
   String message = 
-    "{"
-      "\"main\":\"" + main + "\","
-      "\"sub\":\"" + sub + "\","
-      "\"timeout\":\"" + timeout + "\","
-      "\"color\":\"" + color + "\""
-    "}";
-  mqttClient.publish(mqtt_notify_topic, message.c_str());
+    "{\"main\":\"" + main + "\",\"sub\":\"" + sub + "\",\"timeout\":\"" + timeout + "\",\"color\":\"" + color + "\"}";
+
+  http.begin(urlNode);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(10000);
+  int httpResponseCode = http.POST(message);
+
+  if (httpResponseCode > 0) {
+    Serial.println("Gửi yêu cầu cập nhật thông báo thành công");
+
+  } else {
+      Serial.println("Gửi yêu cầu cập nhật thông báo thất bại");
+      Serial.println(httpResponseCode);
+      String response = http.getString();
+      Serial.println(response);
+    }
+  http.end();
 }
 
 void error() {
@@ -277,19 +263,63 @@ void error() {
 }
 
 void requestUpdate() {
-  String message = 
-    "{"
-      "\"command\":\"update\""
-    "}";
-  mqttClient.publish(mqtt_update_topic, message.c_str());
+
+  HTTPClient http;
+
+  String urlNode = "http://" + String(serverIP) + ":3000/update";
+    String message = 
+    "{\"command\":\"update\"}";
+
+  unsigned long startTime = millis();
+
+  http.begin(urlNode);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(10000);
+  int httpResponseCode = http.POST(message);
+
+  unsigned long duration = millis() - startTime;
+  Serial.println("Thời gian gửi và nhận phản hồi (update): " + String(duration) + " ms");
+
+  if (httpResponseCode > 0) {
+    Serial.println("Gửi yêu cầu cập nhật CSDL thành công");
+
+  } else {
+      Serial.println("Gửi yêu cầu cập nhật CSDL thất bại");
+      Serial.println(httpResponseCode);
+      String response = http.getString();
+      Serial.println(response);
+    }
+  http.end();
 }
 
 void deleteUser(String identification) {
+  
+  HTTPClient http;
+
+  String urlNode = "http://" + String(serverIP) + ":3000/delete";
   String message = 
-    "{"
-      "\"identification\":\"" + identification + "\""
-    "}";
-    mqttClient.publish(mqtt_delete_topic, message.c_str());
+    "{\"identification\":\"" + identification + "\"}";
+
+  unsigned long startTime = millis();
+
+  http.begin(urlNode);
+  http.addHeader("Content-Type", "application/json");
+  http.setTimeout(10000);
+  int httpResponseCode = http.POST(message);
+  
+  unsigned long duration = millis() - startTime;
+  Serial.println("Thời gian gửi và nhận phản hồi (delete): " + String(duration) + " ms");
+
+  if (httpResponseCode > 0) {
+    Serial.println("Gửi yêu cầu xóa người dùng thành công");
+
+  } else {
+      Serial.println("Gửi yêu cầu xóa người dùng thất bại");
+      Serial.println(httpResponseCode);
+      String response = http.getString();
+      Serial.println(response);
+    }
+  http.end();
 }
 
 void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
@@ -297,6 +327,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   
   if (message.startsWith("RestartSystem")) {
     Serial.println("Khởi động lại hệ thống");
+    updateNotification("Đang khởi động lại hệ thống",
+      "Hệ thống sẽ khởi động lại sau vài giây",
+      "5000000","red");
     ESP.restart();
   }
 
@@ -342,9 +375,8 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   }
 
   else if (message.startsWith("InvalidInformation")) {
-    String message = "ShowInformation";
-    webSocket.sendTXT(message);
-
+    // String message = "ShowInformation";
+    // webSocket.sendTXT(message);
     updateNotification("Từ chối truy cập",
       "Thông tin không hợp lệ",
       "5000","red");
@@ -369,9 +401,17 @@ void onWebSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
       Serial.println("Đã kết nối vào WebSocket");
+      webSocketConnected = true;
+      updateNotification("Đã  kết nối WebSocket",
+            "",
+            "5000","green");
       break;
     case WStype_DISCONNECTED:
       Serial.println("Đã ngắt kết nối với WebSocket");
+      webSocketConnected = false;
+      updateNotification("Đã ngắt kết nối WebSocket",
+            "Vui lòng khởi động lại hệ thống",
+            "5000000","red");
       break;
     case WStype_TEXT:
       handleWebSocketMessage(NULL, payload, length);
@@ -555,7 +595,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
     document.addEventListener('DOMContentLoaded', function (event) {
 
-    var baseHost = document.location.origin;
+    // var baseHost = document.location.origin;
+    var baseHost = window.location.protocol + '//' + window.location.host;
     var streamState = false;
 
     const streamContainer = document.getElementById('stream');
@@ -687,25 +728,32 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         let value;
         value = flash.value;
         var query = `${baseHost}/?flash=${value}`;
+        console.log(query);
         fetch(query)
     }
 
     flash.onchange = () => updateValue(flash);
 
     recognizeBtn.onclick = () => {
-        ifr.src = `${baseHost}/?recognizeface=${Date.now()}`;
+      const url = `${baseHost}/?recognizeface=${Date.now()}`;
+      ifr.src = url;
+      console.log(url);
     };
 
     showBoardBtn.onclick = function (event) {
-        infoIfr.src = baseHost + '?showboard';
-        still_overlay.classList.add('hidden');
+      const url = `${baseHost}?showboard`;
+      infoIfr.src = url;
+      console.log(url);
+      still_overlay.classList.add('hidden');
     };
 
     showBoardBtn.click();
     still_overlay.classList.remove('hidden');
 
     updateBtn.onclick = function(event) {
-        ifr.src = baseHost + '?update';
+        const url = `${baseHost}?update`;
+        ifr.src = url;
+        console.log(url);
         uncheckOptions();
     }
 
@@ -714,13 +762,17 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       const timestampTemp = (now.getFullYear() * 10000000000 + (now.getMonth() + 1) * 100000000 + now.getDate() * 1000000 + now.getHours() * 10000 + now.getMinutes() * 100 + now.getSeconds()).toString();
       const email = document.getElementById('email').value;
       const password = Math.floor(100000 + Math.random() * 900000).toString();
-      ifr.src = baseHost + `?generate=content1=${timestampTemp}&content2=${encodeURIComponent(email)}&content3=${password}`;
+      const url = `${baseHost}?generate=content1=${timestampTemp}&content2=${encodeURIComponent(email)}&content3=${password}`;
+      ifr.src = url;
+      console.log(url);
       document.getElementById('email').value = '';
       uncheckOptions();
     }
 
     deleteBtn.onclick = function(event) {
-        socket.send("DeleteUser");
+        const url = `${baseHost}?delete`;
+        ifr.src = url;
+        console.log(url);
         uncheckOptions();
     }
 
@@ -754,13 +806,13 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         notifyIfr.src = 'http://' + serverIP + ':3000/notification';
 
         socket.onopen = function() {
-        console.log('ESP8266: OK');
+        console.log('Web Server - ESP8266: OK');
         };
 
         socket.onmessage = function(event) {
             console.log(event.data);
 
-            if (event.data == 'ShowInformation') {
+            if ((event.data == 'ShowInformation')||(event.data == 'InvalidInformation')) {
               showBoardBtn.click();
             } else if (event.data.startsWith('DeleteFirstScanDone')) {
                 canDetect = false;
@@ -876,12 +928,18 @@ void recognizeFace() {
   int contentLength = head.length() + imageData.length() + tail.length();
 
   HTTPClient http;
+
+  unsigned long startTime = millis();
+
   http.begin(urlNode);
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
   http.addHeader("Content-Length", String(contentLength));
   http.setTimeout(10000);
 
   int httpResponseCode = http.sendRequest("POST", head + imageData + tail);
+
+  unsigned long duration = millis() - startTime;
+  Serial.println("Thời gian gửi và nhận phản hồi (upload): " + String(duration) + " ms");
 
   if (httpResponseCode > 0) {
     Serial.println("Tải lên thành công");
@@ -897,25 +955,19 @@ void recognizeFace() {
   http.end();
 
   String status = extractValue(response, "\"status\"");
-  String folder = extractValue(response, "\"folder\"");
+  // String folder = extractValue(response, "\"folder\"");
   String confidence = extractValue(response, "\"confidence\"");
   float confidenceValue = confidence.toFloat();
   String information = extractValue(response, "\"information\"");
 
   Serial.println("status: [" + status + "]");
-  Serial.println("folder: [" + folder + "]");
+  // Serial.println("folder: [" + folder + "]");
   Serial.println("confidence: [" + confidence + "]");
   Serial.println("information: [" + information + "]");
   
   if (status == "success") {
     if (confidenceValue > 0.9) {
-      if (information == "unidentified") {
-        String message = "LackOfInformation";
-        webSocket.sendTXT(message);
-        updateNotification("Từ chối truy cập",
-          "Không tìm thấy thông tin người dùng",
-          "5000","red");
-      } else {
+      if (information != "unidentified") {
         processMessage(information, 9);
 
         String message = "ShowInformation";
@@ -928,6 +980,12 @@ void recognizeFace() {
         Serial.println("Phòng: " + roomReceive);
         Serial.println("Định danh: " + timestampReceive);
         Serial.println();
+      } else {
+        String message = "LackOfInformation";
+        webSocket.sendTXT(message);
+        updateNotification("Từ chối truy cập",
+          "Không tìm thấy thông tin người dùng",
+          "5000","red");
         }
     }
   } else if (status == "error") {
@@ -1018,6 +1076,9 @@ void processAccount(String encodeQuery) {
   String urlFirebase = "https://firebasestorage.googleapis.com/v0/b/" + FIREBASE_STORAGE_BUCKET + "/o?name=" + folderSend + "/verification.txt&uploadType=media";
 
   HTTPClient http;
+
+  unsigned long startTime = millis();
+
   http.begin(urlFirebase);
   http.addHeader("Content-Type", "text/plain");
 
@@ -1041,35 +1102,32 @@ void processAccount(String encodeQuery) {
   Serial.println("Email: " + emailSend);
   Serial.println("Mật khẩu: " + passwordSend);
 
-  HTTPClient httpwa;
-  WiFiClientSecure client;
-  client.setInsecure();
+  
+  HTTPClient shttp;
 
-  httpwa.begin(WEBAPP_URL);
-  httpwa.addHeader("Content-Type", "application/json");
+  String urlNode = "http://" + String(serverIP) + ":3000/forward";
+    String jsonData = 
+    "{\"command\":\"Generate\",\"content1\":\"" + emailSend + "\",\"content2\":\"" + folderSend + "\",\"content3\":\"" + passwordSend + "\",\"content4\":\"\"}";
 
-  String jsonData = 
-    "{"
-      "\"command\":\"Generate\","
-      "\"content1\":\"" + emailSend + "\","
-      "\"content2\":\"" + folderSend + "\","
-      "\"content3\":\"" + passwordSend + "\""
-      "\"content4\":\"\""
-    "}";
+  shttp.begin(urlNode);
+  shttp.addHeader("Content-Type", "application/json");
+  shttp.setTimeout(10000);
+  int shttpResponseCode = shttp.POST(jsonData);
 
-  int httpwaResponseCode = httpwa.POST(jsonData);
+  unsigned long duration = millis() - startTime;
+  Serial.println("Thời gian gửi và nhận phản hồi (generate): " + String(duration) + " ms");
 
-  if (httpwaResponseCode > 0) {
-    Serial.println("Tải lên thành công");
+  if (shttpResponseCode > 0) {
+    Serial.println("Chuyển tiếp thành công");
+      String sresponse = shttp.getString();
+      Serial.println(sresponse);
   } else {
-    Serial.println("Tải lên thất bại");
-    Serial.println(httpwaResponseCode);
-    String responsewa = httpwa.getString();
-    Serial.println(responsewa);
-  }
-
-  httpwa.end();
-
+      Serial.println("Chuyển tiếp thất bại");
+      Serial.println(shttpResponseCode);
+      String sresponse = shttp.getString();
+      Serial.println(sresponse);
+    }
+  shttp.end();
 }
 
 // bảng hiển thị thông tin
@@ -1243,7 +1301,9 @@ void listenConnection() {
 }
 
 void loop() {  
+  if (!webSocketConnected) {
+    webSocket.setReconnectInterval(1000);
+  }
   webSocket.loop();
-  mqttClient.loop();
   listenConnection();
 }
