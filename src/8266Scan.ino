@@ -72,16 +72,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 
     String message = "ReadyToScan";
     webSocket.broadcastTXT(message);
-
-    Serial.println();
-    Serial.println("Sẵn sàng thêm người dùng mới");
-    Serial.println("Định danh: " + timestampReceive);
-    Serial.println();
-  } 
-
-  else if (message.startsWith("ShowInformation")) {
-    String message = "ShowInformation";
-    webSocket.broadcastTXT(message);
   } 
 
   else if (message.startsWith("InvalidInformation")) {
@@ -89,16 +79,7 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     buzzerTime = 3000;
     buzzerActive = true;
     digitalWrite(BUZZER, HIGH);
-    String message = "InvalidInformation";
-    webSocket.broadcastTXT(message);
-  } 
-
-  else if (message.startsWith("LackOfInformation")) {
-    buzzerStartTime = millis();
-    buzzerTime = 3000;
-    buzzerActive = true;
-    digitalWrite(BUZZER, HIGH);
-  } 
+  }
 
   else if (message.startsWith("DeleteUser")) {
     addMode = false;
@@ -108,12 +89,9 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 
     String message = "ReadyToDelete";
     webSocket.broadcastTXT(message);
-
-    Serial.println("Sẵn sàng để xóa người dùng");
   } 
 
   else if (message.startsWith("RestartSystem")) {
-    Serial.println("Khởi động lại hệ thống");
     String message = "RestartSystem";
     webSocket.broadcastTXT(message);
 
@@ -125,26 +103,17 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
 
 void setup() {
   Serial.begin(115200);
-
   pinMode(BUZZER, OUTPUT);
 
   WiFi.begin(SSID, PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
   }
-  Serial.println("");
-  Serial.println("Đã kết nối WiFi.");
   localIP = WiFi.localIP();
-  Serial.println(localIP);
 
   createModifiedIP(localIP, 50, serverIP);
-  Serial.print("Server IP: ");
-  Serial.println(serverIP);
 
   createModifiedIP(localIP, 43, esp32camIP);
-  Serial.print("ESP32 CAM IP: ");
-  Serial.println(esp32camIP);
 
   webSocket.begin();
   webSocket.onEvent(onWebSocketEvent);
@@ -182,27 +151,10 @@ void loop() {
     buzzerStartTime = millis();
     buzzerActive = true;
     digitalWrite(BUZZER, HIGH);
-
-    if (timestampSend!="") {
-      buzzerTime = 200;
-    } else {
-        buzzerTime = 3000;
-        String message = "InvalidInformation";
-        webSocket.broadcastTXT(message);
-      }
-      
+    buzzerTime = 200;
+    
     String message = "Recall:$$$" + timestampSend;
     webSocket.broadcastTXT(message);
-
-    Serial.println("Đã đọc dữ liệu từ thẻ: ");
-    for (byte i = 0; i < mfrc522.uid.size; i++) {
-      Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
-      Serial.print(mfrc522.uid.uidByte[i], HEX);
-    }
-    Serial.println();
-    Serial.println("Đã đọc dữ liệu");
-    Serial.println("Định danh: " + timestampSend);
-    Serial.println();
   }
   
   if (addMode) {
@@ -219,16 +171,6 @@ void loop() {
     addMode = false;
     readMode = true;
     deleteMode = false;
-
-    Serial.println("Đã ghi dữ liệu vào thẻ: ");
-    for (byte i = 0; i < mfrc522.uid.size; i++) {
-      Serial.print(mfrc522.uid.uidByte[i] < 0x10 ? " 0" : " ");
-      Serial.print(mfrc522.uid.uidByte[i], HEX);
-    }
-    Serial.println();
-    Serial.println("Đã thêm người dùng mới");
-    Serial.println("Định danh: " + timestampReceive);
-    Serial.println();
   }
 
   if (deleteMode) {
@@ -246,8 +188,6 @@ void loop() {
       addMode = false;
       readMode = true;
       deleteMode = false;
-
-      Serial.println("Đã xóa thẻ thành công");
     } else {
         timestampSend = readStringFromBlocks(16, 3);
 
@@ -319,7 +259,6 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
       handleWebSocketMessage(NULL, payload, length);
       break;
     case WStype_DISCONNECTED:
-      Serial.printf("[%u] ngắt kết nối\n", num);
       break;
     case WStype_CONNECTED: {
       clientID = num;
@@ -331,7 +270,6 @@ void onWebSocketEvent(uint8_t num, WStype_t type, uint8_t *payload, size_t lengt
         String message = "ESP32 CAM: OK";
         webSocket.broadcastTXT(message);
       }
-      Serial.printf("[%u] kết nối từ %s\n", clientID, ip.toString().c_str());
       break;
     }
   }

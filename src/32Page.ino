@@ -111,7 +111,6 @@ void setup() {
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
-    Serial.printf("Khởi tạo camera lỗi 0x%x", err);
     delay(1000);
     ESP.restart();
   }
@@ -122,7 +121,6 @@ void setup() {
     s->set_vflip(s, 1);
   }
 
-
   s->set_framesize(s, FRAMESIZE_CIF); // QVGA (320 x 240); CIF (352 x 288); VGA (640 x 480); SVGA (800 x 600); XGA (1024 x 768); SXGA (1280 x 1024); UXGA (1600 x 1200);
   s->set_brightness(s, 0);
   s->set_contrast(s, 2);
@@ -131,20 +129,12 @@ void setup() {
   WiFi.begin(SSID, PASSWORD);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
-    Serial.print(".");
   }
-  Serial.println("");
-  Serial.println("Đã kết nối WiFi.");
   localIP = WiFi.localIP();
-  Serial.println(localIP);
 
   createModifiedIP(localIP, 100, esp8266LocalIP);
-  Serial.print("ESP8266 Local IP: ");
-  Serial.println(esp8266LocalIP);
   
   createModifiedIP(localIP, 50, serverIP);
-  Serial.print("Server IP: ");
-  Serial.println(serverIP);
 
   server.begin();
 
@@ -166,22 +156,6 @@ void processMessage(String message, int headerLength) {
   timestampReceive = message.substring(index3 + 1);
 }
 
-String extractValue(String data, String key) {
-  int keyIndex = data.indexOf(key);
-  if (keyIndex == -1) return "";
-  
-  int startIndex = data.indexOf(":", keyIndex) + 1;
-  while (data.charAt(startIndex) == ' ' || data.charAt(startIndex) == '"') startIndex++;
-  
-  int endIndex = data.indexOf(",", startIndex);
-  if (endIndex == -1) {
-    endIndex = data.indexOf("}", startIndex);
-  }
-  if (data.charAt(endIndex - 1) == '"') endIndex--;
-  
-  return data.substring(startIndex, endIndex);
-}
-
 void recallIdentifier(String id) {
   HTTPClient http;
 
@@ -189,45 +163,18 @@ void recallIdentifier(String id) {
   String message = 
     "{\"identification\":\"" + id + "\"}";
 
-  unsigned long startTime = millis();
-
   http.begin(urlNode);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
   int httpResponseCode = http.POST(message);
 
-  unsigned long duration = millis() - startTime;
-  Serial.println("Thời gian gửi và nhận phản hồi (recall): " + String(duration) + " ms");
-
   if (httpResponseCode > 0) {
-    Serial.println("Tải lên thành công");
     String response = http.getString();
-    Serial.println(response);
-    String information = extractValue(response, "\"information\"");
-    Serial.println("information: [" + information + "]");
-
-    if (information.startsWith("unidentified")) {
-
-    } else {
-        processMessage(information, 9);
-        String message = "ShowInformation";
-        webSocket.sendTXT(message);
-      }
-
-    Serial.println();
-    Serial.println("Thông tin nhận được:");
-    Serial.println("Họ và tên: " + nameReceive);
-    Serial.println("Ngày sinh: " + dobReceive);
-    Serial.println("Phòng: " + roomReceive);
-    Serial.println("Định danh: " + timestampReceive);
-    Serial.println();
-
-  } else {
-      Serial.println("Tải lên thất bại");
-      Serial.println(httpResponseCode);
-      String response = http.getString();
-      Serial.println(response);
+    if (response.indexOf("error") != -1) {
+      String message = "InvalidInformation";
+      webSocket.sendTXT(message);
     }
+  }
 
   http.end();
 }
@@ -244,15 +191,6 @@ void updateNotification(String main, String sub, String timeout, String color) {
   http.setTimeout(10000);
   int httpResponseCode = http.POST(message);
 
-  if (httpResponseCode > 0) {
-    Serial.println("Gửi yêu cầu cập nhật thông báo thành công");
-
-  } else {
-      Serial.println("Gửi yêu cầu cập nhật thông báo thất bại");
-      Serial.println(httpResponseCode);
-      String response = http.getString();
-      Serial.println(response);
-    }
   http.end();
 }
 
@@ -270,25 +208,10 @@ void requestUpdate() {
     String message = 
     "{\"command\":\"update\"}";
 
-  unsigned long startTime = millis();
-
   http.begin(urlNode);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
   int httpResponseCode = http.POST(message);
-
-  unsigned long duration = millis() - startTime;
-  Serial.println("Thời gian gửi và nhận phản hồi (update): " + String(duration) + " ms");
-
-  if (httpResponseCode > 0) {
-    Serial.println("Gửi yêu cầu cập nhật CSDL thành công");
-
-  } else {
-      Serial.println("Gửi yêu cầu cập nhật CSDL thất bại");
-      Serial.println(httpResponseCode);
-      String response = http.getString();
-      Serial.println(response);
-    }
   http.end();
 }
 
@@ -300,25 +223,11 @@ void deleteUser(String identification) {
   String message = 
     "{\"identification\":\"" + identification + "\"}";
 
-  unsigned long startTime = millis();
-
   http.begin(urlNode);
   http.addHeader("Content-Type", "application/json");
   http.setTimeout(10000);
   int httpResponseCode = http.POST(message);
-  
-  unsigned long duration = millis() - startTime;
-  Serial.println("Thời gian gửi và nhận phản hồi (delete): " + String(duration) + " ms");
 
-  if (httpResponseCode > 0) {
-    Serial.println("Gửi yêu cầu xóa người dùng thành công");
-
-  } else {
-      Serial.println("Gửi yêu cầu xóa người dùng thất bại");
-      Serial.println(httpResponseCode);
-      String response = http.getString();
-      Serial.println(response);
-    }
   http.end();
 }
 
@@ -326,7 +235,6 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
   String message = String((char *)data).substring(0, len);
   
   if (message.startsWith("RestartSystem")) {
-    Serial.println("Khởi động lại hệ thống");
     updateNotification("Đang khởi động lại hệ thống",
       "Hệ thống sẽ khởi động lại sau vài giây",
       "5000000","red");
@@ -359,55 +267,30 @@ void handleWebSocketMessage(void *arg, uint8_t *data, size_t len) {
     updateNotification("Quét thẻ lại để hoàn tất",
       "Vui lòng quét lại thẻ để hoàn tất",
       "5000000","red");
-
-    Serial.println();
-    Serial.println("Nhận từ esp8266 (Delete):");
-    Serial.println("Định danh: " + timestampReceive);
-    Serial.println();
   }
 
   else if (message.startsWith("DeleteDone")) {
-    Serial.println("Xóa thẻ thành công");
     requestUpdate();
     updateNotification("Hoàn tất xóa thẻ",
       "Đã xóa thẻ thành công",
       "5000","red");
   }
 
-  else if (message.startsWith("InvalidInformation")) {
-    // String message = "ShowInformation";
-    // webSocket.sendTXT(message);
-    updateNotification("Từ chối truy cập",
-      "Thông tin không hợp lệ",
-      "5000","red");
-
-    Serial.println();
-    Serial.println("Thông tin không hợp lệ");
-    Serial.println();
-  }
-
   else if (message.startsWith("Recall:")) {
     processMessage(message, 7);
     recallIdentifier(timestampReceive);
-
-    Serial.println();
-    Serial.println("Nhận từ esp8266 (Log):");
-    Serial.println("Định danh: " + timestampReceive);
-    Serial.println();
   }
 }
 
 void onWebSocketEvent(WStype_t type, uint8_t *payload, size_t length) {
   switch (type) {
     case WStype_CONNECTED:
-      Serial.println("Đã kết nối vào WebSocket");
       webSocketConnected = true;
       updateNotification("Đã  kết nối WebSocket",
             "",
             "5000","green");
       break;
     case WStype_DISCONNECTED:
-      Serial.println("Đã ngắt kết nối với WebSocket");
       webSocketConnected = false;
       updateNotification("Đã ngắt kết nối WebSocket",
             "Vui lòng khởi động lại hệ thống",
@@ -450,8 +333,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     .restart {position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: solid 2px #FF6060; background-color: transparent; cursor: pointer;}
     .restart:hover {background-color: #fff;}
     .restartLabel {position: absolute; top: 12px; left: 2px; width: 36px; height: 36px; border: none; border-radius: 5px; pointer-events: none;}
-    .lowContainer {display: flex; flex-direction: row; background-color: transparent;}
-    .lowContainer > div {padding: 0px 40px 0px 0px; margin: 0px auto;}
     img {width: 352px; height: 288px; background-color: #fff;}
     .rect {border: 2px solid #00ff00; position: absolute; box-sizing: border-box;}
     .LRContainer {z-index: 9999; position: relative; display: flex; flex-direction: row; margin-top: 4px;}
@@ -558,10 +439,8 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                     </svg>
                     Phát
                 </button>
-                  
                 <button id="recognizeFace" class="hidden">Nhận diện</button>
                 <button id="getStill" class="hidden"></button>
-                <button id="saveImage" class="hidden">Lưu</button>
                 <button id="stopStream" class="redBtn">
                     <svg width="20" height="20" viewBox="0 0 36 36" fill="#FF6060" style="margin-right: 8px; vertical-align: middle;" xmlns="http://www.w3.org/2000/svg">
                         <path d="M23.9917 0.608C24.6839 0.608 25.3583 0.8293 25.9146 1.24C26.4708 1.6507 26.8743 2.2267 27.0644 2.888L28.1333 6.6667H31.3333C32.3942 6.6667 33.4116 7.088 34.1618 7.8382C34.912 8.5884 35.3333 9.6058 35.3333 10.6667V28C35.3333 29.0609 34.912 30.0783 34.1618 30.8284C33.4116 31.5786 32.3942 32 31.3333 32H4C2.93913 32 1.92172 31.5786 1.17157 30.8284C0.421427 30.0783 0 29.0609 0 28V10.6667C0 9.6058 0.421427 8.5884 1.17157 7.8382C1.92172 7.088 2.93913 6.6667 4 6.6667H7.2L8.26893 2.888C8.45904 2.2267 8.86249 1.6507 9.41877 1.24C9.97505 0.8293 10.6494 0.608 11.3416 0.608H23.9917ZM23.9917 4.608H11.3416L10.2667 8.3867V8.4427V8.6667H4V28H31.3333V8.6667H25.0667L23.9917 4.608ZM17.6667 10.6667C19.7884 10.6667 21.8232 11.5446 23.3235 13.1074C24.8238 14.6702 25.6667 16.7493 25.6667 18.9173C25.6667 21.0854 24.8238 23.1644 23.3235 24.7272C21.8232 26.2901 19.7884 27.168 17.6667 27.168C15.5449 27.168 13.5101 26.2901 12.0098 24.7272C10.5095 23.1644 9.66667 21.0854 9.66667 18.9173C9.66667 16.7493 10.5095 14.6702 12.0098 13.1074C13.5101 11.5446 15.5449 10.6667 17.6667 10.6667ZM17.6667 14.6667C16.6058 14.6667 15.5884 15.088 14.8382 15.8382C14.088 16.5884 13.6667 17.6058 13.6667 18.6667C13.6667 19.7275 14.088 20.7449 14.8382 21.4951C15.5884 22.2453 16.6058 22.6667 17.6667 22.6667C18.7275 22.6667 19.7449 22.2453 20.4951 21.4951C21.2453 20.7449 21.6667 19.7275 21.6667 18.6667C21.6667 17.6058 21.2453 16.5884 20.4951 15.8382C19.7449 15.088 18.7275 14.6667 17.6667 14.6667Z" />
@@ -569,23 +448,10 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
                       </svg>
                     Dừng
                 </button>
-                <button id="showBoard" class="hidden">Hiển thị</button>
             </div>
         </div>
         </div>
-        <div class="lowContainer">
-        <div class="cameraContainer" style="position: relative;">
-            <img id="stillImage" style="border-radius: 10px;" src="" />
-            <svg id="still-overlay" class="still-overlay" width="352" height="288" style="position: absolute; top: 0; left: 0; border-radius: 10px;" viewBox="0 0 352 288" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect width="352" height="288" fill="white" />
-                <circle cx="176" cy="144" r="120" fill="#CCCCCC" />
-                <circle cx="176" cy="110" r="40" fill="white" />
-                <path d="M176 160C132.863 160 98 186.863 98 220C98 270.137 132.863 310 176 310C219.137 310 254 270.137 254 220C254 186.863 219.137 160 176 160Z" fill="white"/>
-            </svg>
-        </div>
-        <div style="background-color: transparent;">
-            <iframe id="infoIframe" style="border:none; width:440px; height:288px;"></iframe>
-        </div>
+           <iframe id="infoIframe" style="width: 880px; height: 300px; border: none;"></iframe>
         </div>
     </div>
         <iframe class="hidden" id="ifr"></iframe>
@@ -601,16 +467,12 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
 
     const streamContainer = document.getElementById('stream');
     const overlay = document.getElementById('overlay');
-    const stillContainer = document.getElementById('stillImage');
 
     const stillBtn = document.getElementById('getStill');
     const streamBtn = document.getElementById('startStream');
     const recognizeBtn = document.getElementById('recognizeFace');
     const stopBtn = document.getElementById('stopStream');
-    const saveBtn = document.getElementById('saveImage');
-    const showBoardBtn = document.getElementById('showBoard');
 
-    const infoIfr = document.getElementById('infoIframe');
     const ifr = document.getElementById('ifr');
 
     const updateBtn = document.getElementById('update');
@@ -626,7 +488,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     const featureContainer = document.getElementById('featureContainer');
 
     const camera_overlay = document.getElementById('camera-overlay');
-    const still_overlay = document.getElementById('still-overlay');
 
     function showOptions(checkbox) {
         if (checkbox.checked) {
@@ -728,7 +589,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         let value;
         value = flash.value;
         var query = `${baseHost}/?flash=${value}`;
-        console.log(query);
         fetch(query)
     }
 
@@ -737,23 +597,11 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     recognizeBtn.onclick = () => {
       const url = `${baseHost}/?recognizeface=${Date.now()}`;
       ifr.src = url;
-      console.log(url);
     };
-
-    showBoardBtn.onclick = function (event) {
-      const url = `${baseHost}?showboard`;
-      infoIfr.src = url;
-      console.log(url);
-      still_overlay.classList.add('hidden');
-    };
-
-    showBoardBtn.click();
-    still_overlay.classList.remove('hidden');
 
     updateBtn.onclick = function(event) {
         const url = `${baseHost}?update`;
         ifr.src = url;
-        console.log(url);
         uncheckOptions();
     }
 
@@ -764,7 +612,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
       const password = Math.floor(100000 + Math.random() * 900000).toString();
       const url = `${baseHost}?generate=content1=${timestampTemp}&content2=${encodeURIComponent(email)}&content3=${password}`;
       ifr.src = url;
-      console.log(url);
       document.getElementById('email').value = '';
       uncheckOptions();
     }
@@ -772,7 +619,6 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
     deleteBtn.onclick = function(event) {
         const url = `${baseHost}?delete`;
         ifr.src = url;
-        console.log(url);
         uncheckOptions();
     }
 
@@ -805,16 +651,16 @@ static const char PROGMEM INDEX_HTML[] = R"rawliteral(
         const notifyIfr = document.getElementById('notification');
         notifyIfr.src = 'http://' + serverIP + ':3000/notification';
 
+        const infoIfr = document.getElementById('infoIframe');
+        infoIfr.src = 'http://' + serverIP + ':3000/information';
+
         socket.onopen = function() {
         console.log('Web Server - ESP8266: OK');
         };
 
         socket.onmessage = function(event) {
             console.log(event.data);
-
-            if ((event.data == 'ShowInformation')||(event.data == 'InvalidInformation')) {
-              showBoardBtn.click();
-            } else if (event.data.startsWith('DeleteFirstScanDone')) {
+            if (event.data.startsWith('DeleteFirstScanDone')) {
                 canDetect = false;
               } else if (event.data == 'DeleteDone') {
                   canDetect = true;
@@ -864,7 +710,6 @@ void getStill() {
   last_fb = esp_camera_fb_get();
   
   if (!last_fb) {
-    Serial.println("Lỗi fb");
     error();
   }
   
@@ -898,7 +743,6 @@ void recognizeFace() {
   last_fb = esp_camera_fb_get();
   
   if (!last_fb) {
-    Serial.println("Lỗi fb");
     error();
   }
   
@@ -929,8 +773,6 @@ void recognizeFace() {
 
   HTTPClient http;
 
-  unsigned long startTime = millis();
-
   http.begin(urlNode);
   http.addHeader("Content-Type", "multipart/form-data; boundary=" + boundary);
   http.addHeader("Content-Length", String(contentLength));
@@ -938,60 +780,15 @@ void recognizeFace() {
 
   int httpResponseCode = http.sendRequest("POST", head + imageData + tail);
 
-  unsigned long duration = millis() - startTime;
-  Serial.println("Thời gian gửi và nhận phản hồi (upload): " + String(duration) + " ms");
-
   if (httpResponseCode > 0) {
-    Serial.println("Tải lên thành công");
-    response = http.getString();
-    Serial.println(response);
-  } else {
-      Serial.println("Tải lên thất bại");
-      Serial.println(httpResponseCode);
-      response = http.getString();
-      Serial.println(response);
+    String response = http.getString();
+    if (response.indexOf("error") != -1) {
+      String message = "InvalidInformation";
+      webSocket.sendTXT(message);
     }
+  }
 
   http.end();
-
-  String status = extractValue(response, "\"status\"");
-  // String folder = extractValue(response, "\"folder\"");
-  String confidence = extractValue(response, "\"confidence\"");
-  float confidenceValue = confidence.toFloat();
-  String information = extractValue(response, "\"information\"");
-
-  Serial.println("status: [" + status + "]");
-  // Serial.println("folder: [" + folder + "]");
-  Serial.println("confidence: [" + confidence + "]");
-  Serial.println("information: [" + information + "]");
-  
-  if (status == "success") {
-    if (confidenceValue > 0.9) {
-      if (information != "unidentified") {
-        processMessage(information, 9);
-
-        String message = "ShowInformation";
-        webSocket.sendTXT(message);
-
-        Serial.println();
-        Serial.println("Thông tin nhận diện:");
-        Serial.println("Họ và tên: " + nameReceive);
-        Serial.println("Ngày sinh: " + dobReceive);
-        Serial.println("Phòng: " + roomReceive);
-        Serial.println("Định danh: " + timestampReceive);
-        Serial.println();
-      } else {
-        String message = "LackOfInformation";
-        webSocket.sendTXT(message);
-        updateNotification("Từ chối truy cập",
-          "Không tìm thấy thông tin người dùng",
-          "5000","red");
-        }
-    }
-  } else if (status == "error") {
-    String message = "InvalidInformation";
-    webSocket.sendTXT(message);
-  }
 
   // cập nhật giá trị đèn flash
   ledcAttachChannel(4, 5000, 8, 4);
@@ -1077,31 +874,11 @@ void processAccount(String encodeQuery) {
 
   HTTPClient http;
 
-  unsigned long startTime = millis();
-
   http.begin(urlFirebase);
   http.addHeader("Content-Type", "text/plain");
 
   int httpResponseCode = http.POST(account);
-
-  if (httpResponseCode > 0) {
-    Serial.println("Tải lên thành công");
-    String response = http.getString();
-    Serial.println(response);
-  } else {
-      Serial.println("Tải lên thất bại");
-      Serial.println(httpResponseCode);
-      String response = http.getString();
-      Serial.println(response);
-    }
-
   http.end();
-
-  Serial.println("Đã tạo tài khoản:");
-  Serial.println("Định danh: " + folderSend);
-  Serial.println("Email: " + emailSend);
-  Serial.println("Mật khẩu: " + passwordSend);
-
   
   HTTPClient shttp;
 
@@ -1113,101 +890,8 @@ void processAccount(String encodeQuery) {
   shttp.addHeader("Content-Type", "application/json");
   shttp.setTimeout(10000);
   int shttpResponseCode = shttp.POST(jsonData);
-
-  unsigned long duration = millis() - startTime;
-  Serial.println("Thời gian gửi và nhận phản hồi (generate): " + String(duration) + " ms");
-
-  if (shttpResponseCode > 0) {
-    Serial.println("Chuyển tiếp thành công");
-      String sresponse = shttp.getString();
-      Serial.println(sresponse);
-  } else {
-      Serial.println("Chuyển tiếp thất bại");
-      Serial.println(shttpResponseCode);
-      String sresponse = shttp.getString();
-      Serial.println(sresponse);
-    }
   shttp.end();
 }
-
-// bảng hiển thị thông tin
-String showBoard() {
-  String board =
-  "<!DOCTYPE html>"
-  "<html lang='en'>"
-  "<head>"
-    "<style>"
-      "body {font-family: 'Montserrat', sans-serif; background-color: #fff; margin: 0; padding: 0; overflow: hidden;}"
-      ".showInfo {width: 100%;}"
-      "h3 {font-weight: bold; font-size: 15px; padding: 0; margin: 0;}"
-      "h2 {line-height: 1.2; color: #4CAF50; font-weight: bolder; margin: 0; font-size: 25px; word-wrap: break-word; word-break: break-word; padding: 0;}"
-      ".greybox {background-color: #f4f4f4; border-radius: 10px; padding: 8px; display: flex; align-items: center; margin-bottom: 12px;}"
-      ".greybox div { flex: 1; }"
-      ".greybox svg { margin-left: 8px; margin-right: 8px; }"
-    "</style>"
-  "</head>"
-  "<body>"
-    "<div class='showInfo' id='infoBoard'>"
-      "<div class='greybox'>"
-        "<svg width='40' height='40' fill='#4CAF50' viewBox='200 50 200 300' xmlns='http://www.w3.org/2000/svg'>"
-          "<path d='M179.331,328c3.744,-55.498 56.382,-99.556 120.676,-99.556c64.214,0 116.801,43.949 120.662,99.349'/>"
-          "<circle cx='300' cy='136' r='64'/>"
-        "</svg>" 
-        "<div>"
-          "<h3> Họ và tên: </h3>"
-          "<h2 class='name' id='name'>" +  nameReceive + "</h2>"
-        "</div>"
-      "</div>"
-      "<div class='dob greybox'>"
-        "<svg width='40' height='40' viewBox='0 0 24 24'  fill='none' xmlns='http://www.w3.org/2000/svg'>"
-          "<path d='M3 9H21M7 3V5M17 3V5M6 12H8M11 12H13M16 12H18M6 15H8M11 15H13M16 15H18M6 18H8M11 18H13M16 18H18M6.2 21H17.8C18.9201 21 19.4802 21 19.908 20.782C20.2843 20.5903 20.5903 20.2843 20.782 19.908C21 19.4802 21 18.9201 21 17.8V8.2C21 7.07989 21 6.51984 20.782 6.09202C20.5903 5.71569 20.2843 5.40973 19.908 5.21799C19.4802 5 18.9201 5 17.8 5H6.2C5.0799 5 4.51984 5 4.09202 5.21799C3.71569 5.40973 3.40973 5.71569 3.21799 6.09202C3 6.51984 3 7.07989 3 8.2V17.8C3 18.9201 3 19.4802 3.21799 19.908C3.40973 20.2843 3.71569 20.5903 4.09202 20.782C4.51984 21 5.07989 21 6.2 21Z' stroke='#4CAF50' stroke-width='2' stroke-linecap='round' />"
-        "</svg>"          
-        "<div>"
-          "<h3> Ngày sinh: </h3>"
-          "<h2 class='dob' id='dob'>" +  dobReceive + "</h2>"
-        "</div>"
-      "</div>"
-      "<div class='room greybox'>"
-        "<svg width='40' height='40' viewBox='0 0 96 96' clip-rule='evenodd' fill-rule='evenodd' stroke-linejoin='round' stroke-miterlimit='2' xmlns='http://www.w3.org/2000/svg'>"
-          "<path d='m0 0h96v96h-96z' fill='none' />"
-          "<path d='m39 47c3.311 0 6 2.689 6 6s-2.689 6-6 6-6-2.689-6-6 2.689-6 6-6zm18 0c3.311 0 6 2.689 6 6s-2.689 6-6 6-6-2.689-6-6 2.689-6 6-6zm0 18c3.311 0 6 2.689 6 6s-2.689 6-6 6-6-2.689-6-6 2.689-6 6-6zm-18 0c3.311 0 6 2.689 6 6s-2.689 6-6 6-6-2.689-6-6 2.689-6 6-6z'  fill='#4CAF50' />"
-          "<path d='m69.828 25.969-19.939-15.248c-1.092-.835-2.61-.821-3.686.032l-35.067 27.796c-.717.569-1.136 1.435-1.136 2.351v42.1c0 .796.316 1.559.879 2.121.562.563 1.325.879 2.121.879h70.015c1.654 0 2.996-1.339 3-2.993l.103-42.358c.003-.846-.353-1.653-.978-2.223l-5.162-4.71c-1.223-1.116-1.31-3.015-.194-4.238s3.015-1.31 4.238-.194l5.162 4.709c1.875 1.711 2.941 4.133 2.934 6.671l-.103 42.358c-.013 4.962-4.038 8.978-9 8.978h-70.015c-2.387 0-4.676-.948-6.364-2.636s-2.636-3.977-2.636-6.364v-42.1c0-2.748 1.256-5.345 3.409-7.053l35.066-27.796c3.23-2.56 7.785-2.599 11.058-.096l15.467 11.827v-9.157c0-1.656 1.344-3 3-3s3 1.344 3 3v15.187.088c0 1.656-1.344 3-3 3-.854 0-1.625-.358-2.172-.931z'  fill='#4CAF50' />"
-        "</svg> "   
-        "<div>"
-          "<h3> Phòng: </h3>"
-          "<h2 class='room' id='room'>" +  roomReceive + "</h2>"
-        "</div>"
-      "</div>"
-    "</div>"
-  "</body>"
-  "<script>"
-    "document.addEventListener('DOMContentLoaded', function (event) {"
-      "const userImage = parent.document.getElementById('stillImage');"
-      "const overlay = parent.document.getElementById('still-overlay');"
-      "const name = document.getElementById('name');"
-      "const dob = document.getElementById('dob');"
-      "const room = document.getElementById('room');"
-      "const image = 'https://firebasestorage.googleapis.com/v0/b/" + FIREBASE_STORAGE_BUCKET + "/o/" + timestampReceive + "%2Fsample1.jpg?alt=media';"
-      "if (!name.innerHTML || name.innerHTML.trim() === '') {"
-        "name.innerHTML = 'N/A';"
-      "}"
-      "if (!dob.innerHTML || dob.innerHTML.trim() === '') {"
-        "dob.innerHTML = 'N/A';"
-      "}"
-      "if (!room.innerHTML || room.innerHTML.trim() === '') {"
-        "room.innerHTML = 'N/A';"
-      "}"
-      "if (image == 'https://firebasestorage.googleapis.com/v0/b/" + FIREBASE_STORAGE_BUCKET + "/o/%2Fsample1.jpg?alt=media') {"
-        "overlay.classList.remove('hidden');"
-      "} else {"
-          "userImage.src = image;"
-        "}"
-    "})"
-  "</script>"
-  "</html>";
-  return board;
-}
-//-----------------------
 
 // đọc chuỗi ký tự để phân tích ra câu lệnh
 void getCommand(char c) {
@@ -1232,26 +916,21 @@ void getCommand(char c) {
 
 // xử lý các câu lệnh
 void executeCommand() {
-  if (cmd != "getstill") {
-    Serial.println("cmd = " + cmd + ", pointer = " + pointer);
-  }
 
-    if (cmd == "showboard") {
-        Feedback = showBoard();
-      } else if (cmd == "recognizeface") {
-          recognizeFace();
-        } else if (cmd == "update") {
-            requestUpdate();
-          } else if (cmd == "delete") {
-              String message = "DeleteUser";
-              webSocket.sendTXT(message);
-            } else if (cmd == "generate") {
-                processAccount(pointer);
-              } else if (cmd == "flash") {
-                  ledcAttachChannel(4, 5000, 8, 4);
-                  flashValue = pointer.toInt();
-                  ledcWrite(4, flashValue);  
-                } else Feedback = "Command is not defined.";
+  if (cmd == "recognizeface") {
+      recognizeFace();
+    } else if (cmd == "update") {
+        requestUpdate();
+      } else if (cmd == "delete") {
+          String message = "DeleteUser";
+          webSocket.sendTXT(message);
+        } else if (cmd == "generate") {
+            processAccount(pointer);
+          } else if (cmd == "flash") {
+              ledcAttachChannel(4, 5000, 8, 4);
+              flashValue = pointer.toInt();
+              ledcWrite(4, flashValue);  
+            } else Feedback = "Command is not defined.";
   if (Feedback == "") Feedback = Command;  
 }
 

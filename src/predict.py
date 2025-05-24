@@ -62,17 +62,21 @@ def predict_face(test_image, index, image_paths, labels):
             return "No matching results found."
             
         distance = distances[0][0]
+        confidence = float(1 - distance/2)
             
-        matched_path = image_paths[indices[0][0]]
-        matched_label = labels[indices[0][0]]
-        
-        return {
-            "status": "success",
-            "folder": matched_label,
-            "matched_image": matched_path,
-            "distance": float(distance),
-            "confidence": float(1 - distance/2)
-        }
+        if confidence > 0.85:
+            matched_path = image_paths[indices[0][0]]
+            matched_label = labels[indices[0][0]]
+            
+            return {
+                "status": "success",
+                "folder": matched_label,
+                "matched_image": matched_path,
+                "distance": float(distance),
+                "confidence": confidence
+            }
+        else:
+            return f"Confidence too low ({confidence:.2%}). Must be greater than 85%"
         
     except Exception as e:
         return f"Error during prediction: {str(e)}"

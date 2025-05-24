@@ -60,9 +60,6 @@ const mqttOptions = {
 
 const databaseTopic = 'database/acs/users';
 const logTopic = 'database/acs/logs';
-const deleteUserTopic = 'feature/acs/delete';
-const notifyTopic = 'feature/acs/notify';
-const updateTopic = 'feature/acs/update';
 const traceTopic = 'feature/acs/trace';
 const traceResponseTopic = 'response/acs/trace';
 
@@ -72,9 +69,6 @@ mqttClient.on('connect', () => {
   console.log('Đã kết nối đến MQTT broker');
   mqttClient.subscribe(databaseTopic);
   mqttClient.subscribe(logTopic);
-  mqttClient.subscribe(deleteUserTopic);
-  mqttClient.subscribe(notifyTopic);
-  mqttClient.subscribe(updateTopic);
   mqttClient.subscribe(traceTopic);
   mqttClient.subscribe(traceResponseTopic);
 });
@@ -95,33 +89,7 @@ mqttClient.on('message', (topic, message) => {
       handleDatabaseUpdate(payload);
     } else if (topic === traceTopic) {
         handleTrace(payload);
-      } else if (topic === updateTopic) {
-          handleUpdate(payload);
-        } else if (topic === notifyTopic) {
-            handleNotify(payload);
-          } else if (topic === deleteUserTopic) {
-            if (payload.identification) {
-              handleUserDeletion(payload.identification)
-                .then(() => {
-                  console.log(`Đã xóa thành công người dùng ${payload.identification}`);
-                  io.emit('updateNotification', {
-                    main: "Xóa người dùng thành công",
-                    sub: `Đã xóa người dùng ${payload.identification}`,
-                    timeout: "5000",
-                    color: "green"
-                  });
-                })
-                .catch(error => {
-                  console.error('Lỗi khi xóa người dùng:', error);
-                  io.emit('updateNotification', {
-                    main: "Lỗi xóa người dùng",
-                    sub: "Không thể xóa người dùng",
-                    timeout: "5000",
-                    color: "red"
-                  });
-                });
-            }
-          }
+      } 
   } catch (error) {
     console.error('Lỗi xử lý tin nhắn MQTT:', error);
   }
@@ -191,9 +159,10 @@ function handleLogUpdate(data) {
   }
 }
 
-async function handleUserDeletion(userId) {
+app.post('/delete', async (req, res) => {
   try {
-    const userIdStr = userId.toString();
+    const { identification } = req.body;
+    const userIdStr = identification.toString();
     const bucket = admin.storage().bucket();
     await bucket.deleteFiles({
       prefix: `${userIdStr}/`
@@ -226,12 +195,14 @@ async function handleUserDeletion(userId) {
       timestamp: Date.now()
     }));
 
+    res.json({ status: 'success', message: `Đã xóa người dùng ${userIdStr}` });
+
     return true;
   } catch (error) {
     console.error('Lỗi tiến trình xóa:', error);
     throw error;
   }
-}
+});
 
 async function saveDatabase() {
   try {
@@ -461,15 +432,17 @@ async function getInformation(folderName) {
 function processInformation(information) {
   let id = '', username = '', dob = '', room = '';
 
-    const parts = information.split(':');
-    if (parts.length === 2) {
-      const info = parts[1].split('$');
-      if (info.length === 4) {
-        username = info[0];
-        dob = info[1];
-        room = info[2];
-        id = info[3];
-      }
+  const parts = information.split(':');
+  if (parts.length === 2) {
+    const info = parts[1].split('$');
+    if (info.length === 4) {
+      username = info[0].replace(/\\u([a-fA-F0-9]{4})/g, (match, grp) => {
+        return String.fromCharCode(parseInt(grp, 16));
+      });
+      dob = info[1];
+      room = info[2];
+      id = info[3];
+    }
   }
   
   return { id, username, dob, room };
@@ -576,27 +549,50 @@ app.post('/api/acs/database', (req, res) => {
   }
 });
 
-async function handleUpdate(data) {
-  if (data.command == 'update') {
-    try {
-      const message = await syncDatabaseWithStorage();
-    } catch (error) {
-      console.error('Lỗi:', error);
+app.post('/update', async (req, res) => {
+    const { command } = req.body;
+    
+    if (command !== 'update') {
+        return res.status(400).json({ error: 'Invalid command. Expected "update"' });
     }
-  }
-}
+
+    try {
+        const message = await downloadAllFiles();
+        io.emit('updateNotification', {
+            main: "Hoàn tất cập nhật CSDL",
+            sub: "Đã cập nhật dữ liệu hình ảnh",
+            timeout: "5000",
+            color: "green"
+        });
+        
+        res.json({ status: message });
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Process failed' });
+    }
+});
 
 app.post('/recall', async (req, res) => {
   const identification = req.body.identification;
   try {
     const information = await getInformation(identification);
-    res.json({information: information });
 
     const { currentDate, currentTime} = getCurrentDateTime();
     const { id, username, dob, room } = processInformation(information);
+    let status = '';
     console.log('Nhận diện:', id, username, dob, room);
 
     if (information === "unidentified") {
+      io.emit('updateNotification', {
+        main: "Từ chối truy cập",
+        sub: "Thông tin không hợp lệ",
+        timeout: "5000",
+        color: "red"
+      });
+
+      status = 'error';
+      res.json({status});
+
       data = {
         "command": "Alert",
         "content1": currentDate,
@@ -608,7 +604,19 @@ app.post('/recall', async (req, res) => {
         headers: { 'Content-Type': 'application/json' }
       });
       console.log('Phản hồi từ Web App', response.data);
-    }
+    } else { 
+        status = 'success';
+        res.json({status});
+      }
+
+    io.emit('updateUserInfo', {
+      id: id || 'N/A',
+      name: username || 'N/A', 
+      dob: dob || 'N/A',
+      room: room || 'N/A',
+      folder: id || 'N/A'
+    });
+
     const logEntry = {
       date: currentDate,
       time: currentTime,
@@ -658,7 +666,6 @@ app.post('/upload', upload.single('image'), async (req, res) => {
   try {
     const result = await performFaceRecognition(req.file.path);
 
-    res.json(result);
     const status = result.status;
 
     const imageBuffer = fs.readFileSync(req.file.path);
@@ -682,6 +689,15 @@ app.post('/upload', upload.single('image'), async (req, res) => {
     const { currentDate, currentTime } = getCurrentDateTime();
 
     if (status === 'error') {
+      io.emit('updateNotification', {
+        main: "Từ chối truy cập",
+        sub: "Thông tin không hợp lệ",
+        timeout: "5000",
+        color: "red"
+      });
+
+      res.json({status});
+
       data = {
         "command": "Alert",
         "content1": currentDate,
@@ -693,12 +709,20 @@ app.post('/upload', upload.single('image'), async (req, res) => {
         headers: { 'Content-Type': 'application/json' }
       });
       console.log('Phản hồi từ Web App', response.data);
-    }
+    } else { res.json({status});}
 
     let id = '', username = '', dob = '', room = '';
     if (result.status === 'success') {
       ({ id, username, dob, room } = processInformation(result.information));
     }
+
+    io.emit('updateUserInfo', {
+      id: id || 'N/A',
+      name: username || 'N/A', 
+      dob: dob || 'N/A',
+      room: room || 'N/A',
+      folder: id || 'N/A'
+    });
 
     const logEntry = {
       date: currentDate,
@@ -727,28 +751,86 @@ app.post('/upload', upload.single('image'), async (req, res) => {
   }
 });
 
+app.get('/information', (req, res) => {
+  const htmlPath = path.join(__dirname, 'views', 'information.html');
+  res.sendFile(htmlPath);
+});
+
 app.get('/notification', (req, res) => {
   const htmlPath = path.join(__dirname, 'views', 'notification.html');
   res.sendFile(htmlPath);
 });
 
-async function handleNotify(data) {
-  const main = data.main;
-  const sub = data.sub;
-  const timeout = data.timeout;
-  const color = data.color;
-  io.emit('updateNotification', { 
-    main, 
-    sub, 
-    timeout: timeout || null,
-    color: color || 'green'
+app.post('/notify', async (req, res) => {
+    const { main, sub, timeout, color } = req.body;
+    io.emit('updateNotification', { 
+        main, 
+        sub, 
+        timeout: timeout || null,
+        color: color || 'green'
+    });
+    console.log('Đã gửi thông báo đến client:', { main, sub, timeout, color });
+    res.json({ status: 'success', message: 'Đã cập nhật thông báo' });
+});
+
+app.post('/forward', async (req, res) => {
+  const { content1, content2, content3} = req.body;
+  data = {
+        "command": "Generate",
+        "content1": content1,
+        "content2": content2,
+        "content3": content3,
+        "content4": ""
+      }
+  const response = await axios.post(webappURL, data, {
+    headers: { 'Content-Type': 'application/json' }
   });
-}
+  console.log('Phản hồi từ Web App', response.data);
+  res.json({ status: 'success', message: 'Đã chuyển tiếp yêu cầu' });
+});
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'views', 'management.html'));
 });
 
-server.listen(port, () => {
+async function warmupAI() {
+  console.log('Đang khởi động...');
+  try {
+    await new Promise((resolve, reject) => {
+      const cacheProcess = spawn('python', ['cache.py']);
+      
+      cacheProcess.stdout.on('data', (data) => {
+        console.log(`Cache output: ${data}`);
+      });
+
+      cacheProcess.stderr.on('data', (data) => {
+        console.error(`Cache error: ${data}`);
+      });
+
+      cacheProcess.on('close', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(`Cache process exited with code ${code}`);
+        }
+      });
+    });
+
+    const warmupPath = path.join(__dirname, 'warmup.jpg');
+    if (fs.existsSync(warmupPath)) {
+      await performFaceRecognition(warmupPath);
+      console.log('Đã hoàn tất warm up với mẫu thử');
+    } else {
+      console.log('Không tìm thấy file warmup.jpg');
+    }
+
+    console.log('Đã sẵn sàng');
+  } catch (error) {
+    console.error('Lỗi trong quá trình warm up:', error);
+  }
+}
+
+server.listen(port, async () => {
   console.log(`Server đang chạy tại http://localhost:${port}`);
+  await warmupAI();
 });
