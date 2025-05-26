@@ -82,16 +82,24 @@ let logData = [];
 
 mqttClient.on('message', (topic, message) => {
   try {
+    if (!message || message.toString().trim() === '') {
+      console.warn('Nhận được tin nhắn MQTT rỗng');
+      return;
+    }
+    console.log('Raw MQTT message:', message.toString());
+
     const payload = JSON.parse(message.toString());
     console.log('Nhận được tin nhắn MQTT:', topic, payload);
     
     if (topic === databaseTopic) {
       handleDatabaseUpdate(payload);
     } else if (topic === traceTopic) {
-        handleTrace(payload);
-      } 
+      handleTrace(payload); 
+    }
   } catch (error) {
     console.error('Lỗi xử lý tin nhắn MQTT:', error);
+    console.error('Topic:', topic);
+    console.error('Message:', message.toString());
   }
 });
 
