@@ -22,13 +22,32 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 Future<void> setupMqttClient() async {
   client = MqttServerClient('broker.emqx.io', 'flutter_client${DateTime.now().millisecondsSinceEpoch}');
+
+  if (client.connectionStatus?.state == MqttConnectionState.connected) {
+    print('MQTT client already connected');
+    return;
+  }
   client.port = 1883;
   client.logging(on: true);
-  client.keepAlivePeriod = 20;
+  client.keepAlivePeriod = 60;
   client.connectTimeoutPeriod = 30000;
+  client.autoReconnect = true;
   
-  client.onConnected = onConnected;
-  client.onDisconnected = onDisconnected;
+  client.onConnected = () {
+    print('Connected to MQTT broker');
+    if (currentDashboardState != null && currentDashboardState!.mounted) {
+      currentDashboardState!._updateMqttStatus("Đã kết nối");
+    }
+    _resubscribeToTopics();
+  };
+  
+  client.onDisconnected = () {
+    print('Disconnected from MQTT broker');
+    if (currentDashboardState != null && currentDashboardState!.mounted) {
+      currentDashboardState!._updateMqttStatus("Mất kết nối");
+    }
+  };
+  
   client.onSubscribed = onSubscribed;
   client.onSubscribeFail = onSubscribeFail;
   client.pongCallback = pong;
@@ -64,25 +83,32 @@ Future<void> setupMqttClient() async {
         }
       }
     }
-    
-    if (!connected) {
-      throw Exception('Failed to connect after $retryCount attempts');
+      if (!connected) {
+      print('Failed to connect after $retryCount attempts');
+      return;
     }
     
-    _subscribeTo('database/acs/users');
-    _subscribeTo('feature/acs/trace'); 
-    _subscribeTo('response/acs/trace');
+    await _resubscribeToTopics();
     
     client.updates!.listen((List<MqttReceivedMessage<MqttMessage>> c) {
       final MqttPublishMessage message = c[0].payload as MqttPublishMessage;
       final payload = MqttPublishPayload.bytesToStringAsString(message.payload.message);
       
-      print('Received message: $payload from topic: ${c[0].topic}>');
+      print('Received message: $payload from topic: ${c[0].topic}');
       
       switch (c[0].topic) {
+        case 'database/acs/users':
+          print('Received database update');
+          break;
+        case 'feature/acs/trace':
+          print('Received trace request');
+          break;
         case 'response/acs/trace':
+          print('Received trace response');
           handleResponseMessage(payload);
           break;
+        default:
+          print('Received message from unhandled topic: ${c[0].topic}');
       }
     });
   } catch (e) {
@@ -91,20 +117,21 @@ Future<void> setupMqttClient() async {
   }
 }
 
-void _subscribeTo(String topic) {
-  try {
-    client.subscribe(topic, MqttQos.atLeastOnce);
-  } catch (e) {
-    print('Error subscribing to $topic: $e');
+Future<void> _resubscribeToTopics() async {
+  final topics = [
+    'database/acs/users',
+    'feature/acs/trace',
+    'response/acs/trace'
+  ];
+  
+  for (final topic in topics) {
+    try {
+      client.subscribe(topic, MqttQos.atLeastOnce);
+      print('Subscribed to topic: $topic');
+    } catch (e) {
+      print('Error subscribing to $topic: $e');
+    }
   }
-}
-
-void onConnected() {
-  print('Connected to MQTT broker');
-}
-
-void onDisconnected() {
-  print('Disconnected from MQTT broker');
 }
 
 void onSubscribed(String topic) {
@@ -765,12 +792,33 @@ class DashboardPage extends StatefulWidget {
 
 class _DashboardPageState extends State<DashboardPage> {
   List<Map<String, String>> _historyData = [];
+  String _mqttStatus = "Đang kết nối...";
 
   @override
   void initState() {
     super.initState();
     currentDashboardState = this;
     _updateHistory();
+    _initializeMqttStatus();
+  }
+  void _initializeMqttStatus() {
+    _updateMqttStatus(
+      client.connectionStatus?.state == MqttConnectionState.connected
+          ? "Đã kết nối"
+          : "Mất kết nối"
+    );
+    
+    if (client.connectionStatus?.state != MqttConnectionState.connected) {
+      setupMqttClient();
+    }
+  }
+
+  void _updateMqttStatus(String status) {
+    if (mounted) {
+      setState(() {
+        _mqttStatus = status;
+      });
+    }
   }
 
   void _updateHistoryData(List<Map<String, String>> newData) {
@@ -784,24 +832,30 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _updateHistory() async {
   try {
     final builder = MqttClientPayloadBuilder();
-      builder.addString(json.encode({
-        "identification": widget.username      
-      }));
+    builder.addString(json.encode({
+      "identification": widget.username      
+    }));
+    
+    if (client.connectionStatus?.state == MqttConnectionState.connected) {
+      print('Sending message to feature/acs/trace: ${builder.payload!}');
       
-      if (client.connectionStatus?.state == MqttConnectionState.connected) {
-        client.publishMessage(
-          'feature/acs/trace', 
-          MqttQos.atLeastOnce, 
-          builder.payload!
-        );
-        print('Published registration data to MQTT topic');
-      } else {
-        print('MQTT client not connected');
-      }
+      final pubTopic = 'feature/acs/trace';
+      client.publishMessage(
+        pubTopic,
+        MqttQos.atLeastOnce,
+        builder.payload!,
+      );
+      
+      print('Message published successfully to $pubTopic');
+    } else {
+      print('Cannot publish - client not connected. Status: ${client.connectionStatus?.state}');
+      await setupMqttClient();
+    }
   } catch (e) {
+    print('Error publishing message: $e');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Lỗi: $e'),
+        content: Text('Lỗi khi gửi tin nhắn MQTT: $e'),
         backgroundColor: Colors.red,
       ),
     );
@@ -906,23 +960,46 @@ class _DashboardPageState extends State<DashboardPage> {
                         ),
                       ],
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () async {
-                        await _clearCredentials();
-                        Navigator.pushReplacement(
-                          context,
-                          MaterialPageRoute(
-                            builder: (context) => const LoginPage(),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              _mqttStatus == "Đã kết nối" ? Icons.circle : Icons.error_outline,
+                              size: 12,
+                              color: _mqttStatus == "Đã kết nối" ? const Color(0xFF4CAF50) : const Color(0xFFFF6060),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _mqttStatus,
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _mqttStatus == "Đã kết nối" ? const Color(0xFF4CAF50) : const Color(0xFFFF6060),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        OutlinedButton.icon(
+                          onPressed: () async {
+                            await _clearCredentials();
+                            Navigator.pushReplacement(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const LoginPage(),
+                              ),
+                            );
+                          },
+                          icon: const Icon(Icons.logout, size: 16),
+                          label: const Text('Đăng xuất'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFFFF6060),
+                            side: const BorderSide(color: Color(0xFFFF6060)),
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                           ),
-                        );
-                      },
-                      icon: const Icon(Icons.logout, size: 16),
-                      label: const Text('Đăng xuất'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFFFF6060),
-                        side: const BorderSide(color: Color(0xFFFF6060)),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
