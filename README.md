@@ -26,7 +26,7 @@ An access control system integrating RFID and facial recognition technologies, s
 - **Protocols**:
   - HTTP
   - WebSocket
-  - Network Time Protocol
+  - MQTT
   - SPI
 - **Frameworks**:
   - Express.js
