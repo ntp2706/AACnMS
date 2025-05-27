@@ -3,6 +3,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter/gestures.dart';
 import 'package:image_picker/image_picker.dart';
 import 'dart:io';
+import 'dart:math';
 import 'package:dotted_border/dotted_border.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:http/http.dart' as http;
@@ -19,9 +20,47 @@ const String webappUrl = "https://script.google.com/macros/s/AKfycbzvP5cKI78IiGV
 late MqttServerClient client;
 _DashboardPageState? currentDashboardState;
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+const String pubTopic = 'feature/acs/trace';
+
+Future<void> publishMessage(String message) async {
+    if (client.connectionStatus?.state != MqttConnectionState.connected) {
+      print('Client not connected');
+      return;
+    }
+
+    final builder = MqttClientPayloadBuilder();
+    builder.addString(message);
+
+    int retryCount = 0;
+    bool published = false;
+    while (!published && retryCount < 3) {
+      try {
+        client.publishMessage(
+          pubTopic,
+          MqttQos.exactlyOnce,
+          builder.payload!,
+        );
+        published = true;
+        print('Message published successfully');
+      } catch (e) {
+        print('Failed to publish message: $e');
+        retryCount++;
+        if (retryCount < 3) {
+          await Future.delayed(Duration(seconds: 1));
+        }
+      }
+    }
+    
+    if (!published) {
+      print('Failed to publish message after 3 attempts');
+    }
+}
 
 Future<void> setupMqttClient() async {
-  client = MqttServerClient('broker.emqx.io', 'flutter_client${DateTime.now().millisecondsSinceEpoch}');
+  final random = Random();
+  final clientId = 'flutter_client_${DateTime.now().millisecondsSinceEpoch}_${random.nextInt(999999)}';
+  print('Setting up MQTT client with ID: $clientId');
+  client = MqttServerClient('broker.emqx.io', clientId);
 
   if (client.connectionStatus?.state == MqttConnectionState.connected) {
     print('MQTT client already connected');
@@ -51,11 +90,10 @@ Future<void> setupMqttClient() async {
   client.onSubscribed = onSubscribed;
   client.onSubscribeFail = onSubscribeFail;
   client.pongCallback = pong;
-
   final connMessage = MqttConnectMessage()
-      .withClientIdentifier('flutter_client')
+      .withClientIdentifier(clientId)
       .startClean()
-      .withWillQos(MqttQos.atLeastOnce)
+      .withWillQos(MqttQos.exactlyOnce)
       .withWillRetain()
       .withWillMessage('Client disconnected')
       .withWillTopic('willtopic');
@@ -828,7 +866,6 @@ class _DashboardPageState extends State<DashboardPage> {
       });
     }
   }
-
   Future<void> _updateHistory() async {
   try {
     final builder = MqttClientPayloadBuilder();
@@ -836,27 +873,97 @@ class _DashboardPageState extends State<DashboardPage> {
       "identification": widget.username      
     }));
     
+    if (client.connectionStatus?.state != MqttConnectionState.connected) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Đang thử kết nối lại...'),
+          duration: Duration(seconds: 2),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      print('MQTT not connected, attempting to reconnect...');
+      await setupMqttClient();
+      await Future.delayed(const Duration(seconds: 2));
+    }
+
     if (client.connectionStatus?.state == MqttConnectionState.connected) {
       print('Sending message to feature/acs/trace: ${builder.payload!}');
       
       final pubTopic = 'feature/acs/trace';
-      client.publishMessage(
-        pubTopic,
-        MqttQos.atLeastOnce,
-        builder.payload!,
-      );
       
-      print('Message published successfully to $pubTopic');
+      int retryCount = 0;
+      bool published = false;
+      
+      while (!published && retryCount < 3) {
+        try {
+          client.publishMessage(
+            pubTopic,
+            MqttQos.exactlyOnce,
+            builder.payload!,
+          );
+          published = true;
+          print('Message published successfully to $pubTopic');
+          
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Đã cập nhật thành công'),
+              backgroundColor: Color(0xFF4CAF50),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        } catch (e) {
+          retryCount++;
+          print('Publish attempt $retryCount failed: $e');
+          if (retryCount < 3) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Lần thử ${retryCount}: Không gửi được, đang thử lại...'),
+                duration: Duration(seconds: 1),
+                backgroundColor: Colors.orange,
+              ),
+            );
+            await Future.delayed(Duration(seconds: 1));
+          }
+        }
+      }
+      
+      if (!published) {
+        throw Exception('Không thể gửi tin nhắn sau 3 lần thử');
+      }
     } else {
-      print('Cannot publish - client not connected. Status: ${client.connectionStatus?.state}');
-      await setupMqttClient();
+      throw Exception('Không thể kết nối tới máy chủ MQTT. Trạng thái: ${client.connectionStatus?.state}');
     }
   } catch (e) {
     print('Error publishing message: $e');
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Lỗi khi gửi tin nhắn MQTT: $e'),
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline, color: Colors.white),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Không thể cập nhật dữ liệu', 
+                    style: TextStyle(fontWeight: FontWeight.bold)
+                  ),
+                  Text('Vui lòng kéo xuống để thử lại',
+                    style: TextStyle(fontSize: 12)
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
         backgroundColor: Colors.red,
+        duration: Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Thử lại',
+          textColor: Colors.white,
+          onPressed: () => _updateHistory(),
+        ),
       ),
     );
   }
@@ -1263,16 +1370,55 @@ String encodeToAscii(String text) {
         "room": room,
         "image": "https://firebasestorage.googleapis.com/v0/b/test-96fdf.appspot.com/o/$username%2Fsample1.jpg?alt=media"
       }));
-      
+
+      if (client.connectionStatus?.state != MqttConnectionState.connected) {
+        print('MQTT not connected, attempting to reconnect...');
+        await setupMqttClient();
+        await Future.delayed(const Duration(seconds: 2));
+      }
+
       if (client.connectionStatus?.state == MqttConnectionState.connected) {
-        client.publishMessage(
-          'database/acs/users', 
-          MqttQos.atLeastOnce, 
-          builder.payload!
-        );
-        print('Published registration data to MQTT topic');
+        int retryCount = 0;
+        bool published = false;
+        
+        while (!published && retryCount < 3) {
+          try {
+            client.publishMessage(
+              'database/acs/users',
+              MqttQos.exactlyOnce,
+              builder.payload!,
+            );
+            published = true;
+            print('Published registration data to MQTT topic successfully');
+            
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Đã gửi thông tin đăng ký thành công'),
+                backgroundColor: Color(0xFF4CAF50),
+                duration: Duration(seconds: 2),
+              ),
+            );
+          } catch (e) {
+            retryCount++;
+            print('Publish attempt $retryCount failed: $e');
+            if (retryCount < 3) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Lần thử ${retryCount}: Không gửi được, đang thử lại...'),
+                  duration: Duration(seconds: 1),
+                  backgroundColor: Colors.orange,
+                ),
+              );
+              await Future.delayed(Duration(seconds: 1));
+            }
+          }
+        }
+        
+        if (!published) {
+          throw Exception('Không thể gửi thông tin đăng ký sau 3 lần thử');
+        }
       } else {
-        print('MQTT client not connected');
+        throw Exception('Không thể kết nối tới máy chủ MQTT. Trạng thái: ${client.connectionStatus?.state}');
       }
 
       try {
