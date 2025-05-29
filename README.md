@@ -48,7 +48,7 @@ An access control system integrating RFID and facial recognition technologies, s
   - Dart for mobile application
 
 ## Demo
-[![YouTube Demo](https://img.shields.io/badge/YouTube-Watch_Demo-red?style=for-the-badge&logo=youtube)](https://youtu.be/y_aD0SUyge4)
+[![Google Drive Demo](https://img.shields.io/badge/GoogleDrive-View_Demo-blue?style=for-the-badge&logo=google-drive)](https://drive.google.com/file/d/1q-J1pKu8UODIyIAQ2BqvTYGQxYF3GXrE/view?usp=sharing)
 
 ---
  
